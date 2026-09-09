@@ -1,0 +1,31 @@
+{
+  "name": "material-canvas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A focused internal canvas for arranging image, video, and audio assets.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.js",
+    "smoke": "node scripts/smoke.js",
+    "check:deploy": "node scripts/check-deploy.js",
+    "migrate:cloud": "node scripts/migrate-cloud.js"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "overrides": {
+    "axios": "^1.20.0"
+  },
+  "dependencies": {
+    "@upstash/qstash": "^2.11.3",
+    "@volcengine/tos-sdk": "^2.9.1",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  }
+}

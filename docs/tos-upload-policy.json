@@ -1,0 +1,23 @@
+{
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "tos:HeadBucket",
+        "tos:ListBucket",
+        "tos:ListBucketMultipartUploads"
+      ],
+      "Resource": ["trn:tos:::ai-video-team-prod"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "tos:GetObject",
+        "tos:PutObject",
+        "tos:AbortMultipartUpload",
+        "tos:ListMultipartUploadParts"
+      ],
+      "Resource": ["trn:tos:::ai-video-team-prod/*"]
+    }
+  ]
+}

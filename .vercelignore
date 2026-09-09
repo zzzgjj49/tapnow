@@ -1,0 +1,10 @@
+.env
+.env.*
+data
+.run
+.edge-browser-smoke
+node_modules
+test
+scripts
+docs
+*.log
