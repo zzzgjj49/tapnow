@@ -2284,3 +2284,6 @@ input:focus-visible,
 .project-categories button[aria-pressed="true"] { color: #f3edff; border-color: #9475cc; background: #322840; }
 .project-categories button span { font-size: 12px; border-radius: 6px; padding: 2px 6px; background: #ffffff12; }
 .project-categories button:focus-visible { outline: 2px solid #c6aff1; outline-offset: 3px; }
+
+/* Keep navigation links visually aligned with adjacent buttons. */
+a.secondary-button, a.topbar-button { text-decoration: none; font-family: inherit; line-height: 1.4; }

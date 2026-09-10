@@ -218,7 +218,7 @@ async function renderWorkspace() {
       <div class="workspace">
         <header class="workspace-header">
           <div class="brand"><div class="brand-mark"><span></span></div><span>素材 Canvas</span></div>
-          <a class="secondary-button" href="/account.html">成员与邀请</a>
+          <a class="secondary-button" href="/account.html">管理中心</a>
           <button class="new-project-button" data-new-project>${icons.plus}<span>新建${categoryName}</span></button>
         </header>
         <main class="workspace-main">
@@ -398,7 +398,7 @@ class MaterialCanvas {
           <span class="topbar-divider"></span>
           <div class="save-state saved" data-save-state>已保存</div>
           <button type="button" class="cloud-storage-state" data-cloud-storage hidden></button>
-          <a class="topbar-button" href="/account.html">成员与邀请</a>
+          <a class="topbar-button" href="/account.html">管理中心</a>
         </div>
         <div class="canvas-surface" data-canvas>
           <div class="canvas-world" data-world>
