@@ -5,6 +5,7 @@ const filePicker = document.querySelector("#file-picker");
 
 let activeCanvas = null;
 let pickerContext = null;
+let projectCategory = new URLSearchParams(location.search).get("category") === "personal" ? "personal" : "team";
 
 const ACCEPT = {
   image: ".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif",
@@ -196,7 +197,9 @@ async function renderWorkspace() {
   closeModal();
   app.innerHTML = '<div class="loading-screen"><div><span class="loading-dot"></span>正在打开工作空间</div></div>';
   try {
-    const projects = await api("/api/projects");
+    const allProjects = await api("/api/projects");
+    const projects = allProjects.filter(project => project.visibility === projectCategory);
+    const categoryName = projectCategory === "personal" ? "个人项目" : "团队项目";
     const cards = projects.map((project) => `
       <article class="project-card" data-project-id="${project.id}" tabindex="0" aria-label="打开项目 ${escapeHtml(project.name)}">
         <div class="project-cover" style="--cover-hue:${hueFromId(project.id)}">
@@ -205,7 +208,7 @@ async function renderWorkspace() {
         </div>
         <div class="project-info">
           <h2 class="project-name">${escapeHtml(project.name)}</h2>
-          <div class="project-time">${relativeTime(project.updatedAt)}</div>
+          <div class="project-time">${project.visibility === "personal" ? "仅自己可见" : "团队共享"} · ${relativeTime(project.updatedAt)}</div>
         </div>
         <button class="card-menu-button" aria-label="项目操作" aria-expanded="false" data-project-menu>${icons.dots}</button>
       </article>
@@ -216,27 +219,36 @@ async function renderWorkspace() {
         <header class="workspace-header">
           <div class="brand"><div class="brand-mark"><span></span></div><span>素材 Canvas</span></div>
           <a class="secondary-button" href="/account.html">成员与邀请</a>
-          <button class="new-project-button" data-new-project>${icons.plus}<span>新建项目</span></button>
+          <button class="new-project-button" data-new-project>${icons.plus}<span>新建${categoryName}</span></button>
         </header>
         <main class="workspace-main">
           <div class="workspace-heading">
             <div class="eyebrow">Internal workspace</div>
-            <h1>团队项目</h1>
-            <p>打开一个项目，整理图片、视频和音频素材。</p>
+            <h1>${categoryName}</h1>
+            <p>${projectCategory === "personal" ? "仅自己可见，保存你的创作与灵感。" : "与受邀成员共同使用，整理团队的创作素材。"}</p>
           </div>
+          <nav class="project-categories" aria-label="项目分类">
+            ${["personal", "team"].map(category => `<button type="button" data-category="${category}" aria-pressed="${projectCategory === category}">${category === "personal" ? "个人项目" : "团队项目"}<span>${allProjects.filter(p => p.visibility === category).length}</span></button>`).join("")}
+          </nav>
           ${projects.length ? `<section class="project-grid">${cards}</section>` : `
             <section class="empty-workspace">
-              <div><div class="empty-icon">${icons.folder}</div><strong>还没有项目</strong><span>点击右上角新建第一个 Canvas</span></div>
+              <div><div class="empty-icon">${icons.folder}</div><strong>还没有${categoryName}</strong><span>点击右上角新建${categoryName}</span></div>
             </section>
           `}
         </main>
       </div>
     `;
 
+    app.querySelectorAll("[data-category]").forEach(button => button.addEventListener("click", () => {
+      projectCategory = button.dataset.category;
+      history.replaceState(null, "", "/?category=" + projectCategory);
+      renderWorkspace();
+    }));
+
     app.querySelector("[data-new-project]").addEventListener("click", async (event) => {
       event.currentTarget.disabled = true;
       try {
-        const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ name: "未命名项目" }) });
+        const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ name: "未命名项目", visibility: projectCategory }) });
         navigate(projectPath(project.id));
       } catch (error) {
         event.currentTarget.disabled = false;
@@ -271,9 +283,10 @@ function openProjectMenu(button, project) {
   const menu = document.createElement("div");
   menu.className = "card-menu";
   menu.style.left = `${Math.min(window.innerWidth - 160, rect.right - 148)}px`;
-  menu.style.top = `${Math.min(window.innerHeight - 98, rect.bottom + 5)}px`;
+  menu.style.top = `${Math.min(window.innerHeight - 150, rect.bottom + 5)}px`;
   menu.innerHTML = `
     <button data-rename>${icons.edit}修改名称</button>
+    ${project.canManageVisibility ? `<button data-visibility>${icons.folder}${project.visibility === "personal" ? "移到团队项目" : "移到个人项目"}</button>` : ""}
     <button class="danger" data-delete>${icons.trash}删除项目</button>
   `;
   button.setAttribute("aria-expanded", "true");
@@ -291,9 +304,40 @@ function openProjectMenu(button, project) {
     close();
     showRenameDialog(project, renderWorkspace);
   });
+  menu.querySelector("[data-visibility]")?.addEventListener("click", () => {
+    close();
+    showProjectVisibilityDialog(project);
+  });
   menu.querySelector("[data-delete]").addEventListener("click", () => {
     close();
     showDeleteProjectDialog(project, renderWorkspace);
+  });
+}
+
+function showProjectVisibilityDialog(project) {
+  const visibility = project.visibility === "personal" ? "team" : "personal";
+  const label = visibility === "personal" ? "个人项目" : "团队项目";
+  const backdrop = modalBackdrop(`
+    <div class="dialog">
+      <h2>移到${label}？</h2>
+      <p>${visibility === "personal" ? "移动后仅你可以打开该项目，其他成员将无法继续访问。" : "移动后所有受邀成员都可以查看和编辑项目及其中的素材。"}</p>
+      <div class="dialog-actions"><button class="secondary-button" data-cancel>取消</button><button class="primary-button" data-confirm>确认移动</button></div>
+    </div>
+  `);
+  backdrop.querySelector("[data-cancel]").addEventListener("click", closeModal);
+  backdrop.querySelector("[data-confirm]").addEventListener("click", async event => {
+    event.currentTarget.disabled = true;
+    try {
+      await api("/api/projects/" + project.id, {method: "PATCH", body: JSON.stringify({visibility})});
+      projectCategory = visibility;
+      history.replaceState(null, "", "/?category=" + visibility);
+      closeModal();
+      await renderWorkspace();
+      toast("已移到" + label);
+    } catch (error) {
+      event.currentTarget.disabled = false;
+      toast(error.message);
+    }
   });
 }
 

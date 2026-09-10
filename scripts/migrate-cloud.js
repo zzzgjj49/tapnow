@@ -4,7 +4,8 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 process.loadEnvFile(path.join(root, '.env'));
 async function main() {
-  if (!process.env.DATABASE_URL) throw new Error('请先在本机 .env 配置 DATABASE_URL');
+  const tos = process.argv.includes('--tos') || process.env.STATE_STORAGE === 'tos';
+  if (!tos && !process.env.DATABASE_URL) throw new Error('请配置云数据库，或使用 --tos 迁移到现有 TOS');
   const local = JSON.parse(fs.readFileSync(path.join(root, 'data/canvas-data.json'), 'utf8'));
   const records = JSON.parse(fs.readFileSync(path.join(root, 'data/cloud-storage.json'), 'utf8'));
   const urls = new Set();
@@ -16,10 +17,10 @@ async function main() {
   }
   const endpoint = new URL(process.env.TOS_ENDPOINT).host;
   if ([...urls].some(url => !url.startsWith('/uploads/') || records[url]?.status !== 'ready' || records[url].bucket !== process.env.TOS_BUCKET || records[url].endpoint !== endpoint)) throw new Error('还有素材没有归档到目标桶，请先在本地完成云端备份');
-  const store = require('../state-store')({ databaseUrl: process.env.DATABASE_URL });
+  const store = require('../state-store')({ databaseUrl: process.env.DATABASE_URL, tos });
   try {
     await store.transaction(() => {
-      if (store.state.projects.length || store.state.nodes.length) throw new Error('目标数据库已有项目，已停止迁移以避免覆盖');
+      if (store.state.projects.length || store.state.nodes.length) throw new Error('目标云端存储已有项目，已停止迁移以避免覆盖');
       store.state.projects = local.projects; store.state.nodes = local.nodes; store.state.edges = local.edges;
       store.state.cloudRecords = records;
       // Historic jobs have no verified member attribution and are not added to personal bills.

@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 if (fs.existsSync(path.join(root, '.env'))) process.loadEnvFile(path.join(root, '.env'));
-const keys = ['DATABASE_URL','APP_URL','ADMIN_EMAIL','ADMIN_PASSWORD','TOS_BUCKET','TOS_REGION','TOS_ENDPOINT','TOS_ACCESS_KEY','TOS_SECRET_KEY','ARK_API_KEY','QSTASH_TOKEN','QSTASH_CURRENT_SIGNING_KEY','QSTASH_NEXT_SIGNING_KEY'];
+const keys = [...(process.env.STATE_STORAGE === 'tos' ? ['STATE_STORAGE'] : ['DATABASE_URL']),'APP_URL','ADMIN_EMAIL','ADMIN_PASSWORD','TOS_BUCKET','TOS_REGION','TOS_ENDPOINT','TOS_ACCESS_KEY','TOS_SECRET_KEY','ARK_API_KEY','QSTASH_TOKEN','QSTASH_CURRENT_SIGNING_KEY','QSTASH_NEXT_SIGNING_KEY'];
 let missing = false;
 for (const key of keys) { const present = Boolean(process.env[key]?.trim()); console.log(`${key}: ${present ? '已配置' : '待配置'}`); missing ||= !present; }
 if (process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.length < 12) { console.log('管理员密码至少需要 12 位'); missing = true; }

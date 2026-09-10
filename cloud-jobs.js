@@ -15,8 +15,9 @@ module.exports = function cloudJobs({ app, store, media, handlers, nodeById, pub
     await queue.publishJSON({ url: `${process.env.APP_URL}/api/internal/jobs`, body: { wakeId }, delay: '60s', retries: 3 });
     db.wake = { id: wakeId, at: Date.now() + 60000 }; store.save();
   }
-  async function retryPaused() {
+  async function retryPaused(allowed = () => true) {
     for (const j of db.jobs) {
+      if (!allowed(j)) continue;
       if (j.status === 'archive_failed') j.status = 'archiving';
       else if (j.status === 'poll_failed') j.status = 'generating';
       else continue;

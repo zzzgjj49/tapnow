@@ -2277,3 +2277,10 @@ input:focus-visible,
   .video-settings-popover { padding: 12px; }
   .video-settings-popover .setting-options button { font-size: 14px; }
 }
+
+/* Project visibility and category navigation */
+.project-categories { display: flex; gap: 8px; margin: 0 0 26px; }
+.project-categories button { display: inline-flex; align-items: center; gap: 10px; padding: 12px 18px; border: 1px solid #303135; border-radius: 12px; background: #17181a; color: #a7abb3; cursor: pointer; font: inherit; }
+.project-categories button[aria-pressed="true"] { color: #f3edff; border-color: #9475cc; background: #322840; }
+.project-categories button span { font-size: 12px; border-radius: 6px; padding: 2px 6px; background: #ffffff12; }
+.project-categories button:focus-visible { outline: 2px solid #c6aff1; outline-offset: 3px; }

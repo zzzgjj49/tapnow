@@ -24,11 +24,12 @@ const TYPES = {
   audio: new Set([".mp3", ".wav", ".m4a", ".aac"]),
 };
 
-const cloudMode = Boolean(process.env.DATABASE_URL);
+const tosState = process.env.STATE_STORAGE === 'tos';
+const cloudMode = tosState || Boolean(process.env.DATABASE_URL);
 const authEnabled = cloudMode || process.env.AUTH_ENABLED === "1" || Boolean(process.env.VERCEL);
-if (process.env.VERCEL && !cloudMode) throw new Error("Vercel 部署需要配置 DATABASE_URL");
+if (process.env.VERCEL && !cloudMode) throw new Error("Vercel 部署需要配置 STATE_STORAGE=tos 或 DATABASE_URL");
 if (!cloudMode) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-const store = require("./state-store")({ file: DB_FILE, databaseUrl: process.env.DATABASE_URL });
+const store = require("./state-store")({ file: DB_FILE, databaseUrl: process.env.DATABASE_URL, tos: tosState });
 const db = store.state;
 const saveDatabase = store.save;
 const cloudStorage = cloudMode
@@ -84,7 +85,7 @@ function linkedReferences(node) {
     .filter((edge) => edge.targetNodeId === node.id)
     .map((edge) => {
       const source = nodeById(edge.sourceNodeId);
-      if (!source) return null;
+      if (!source || source.projectId !== node.projectId || edge.projectId !== node.projectId) return null;
       return {
         id: `edge:${edge.id}`,
         edgeId: edge.id,
@@ -176,12 +177,14 @@ function publicNode(node) {
   };
 }
 
-function publicProject(project, includeNodes = false) {
+function publicProject(project, includeNodes = false, user) {
   const nodes = db.nodes.filter((node) => node.projectId === project.id);
   const edges = db.edges.filter((edge) => edge.projectId === project.id).map(publicEdge);
   const coverNode = [...nodes].reverse().find((node) => node.type === "image" && (node.storedName || node.generation?.outputUrl));
   return {
     ...project,
+    visibility: projectAccess.visibility(project),
+    canManageVisibility: projectAccess.manageable(project, user),
     coverUrl: coverNode ? publicNode(coverNode).url : null,
     assetCount: nodes.length,
     ...(includeNodes ? { nodes: nodes.map(publicNode), edges } : {}),
@@ -272,6 +275,7 @@ app.use((req, res, next) => {
   store.middleware(req, res, next);
 });
 require('./members')({ app, db, save: saveDatabase, enabled: authEnabled });
+const projectAccess = require('./project-access')({ app, db, enabled: authEnabled });
 app.get("/uploads/:projectId/:filename", (request, response, next) => {
   const url = cloudStorage.urlFor(request.params.projectId, request.params.filename);
   try {
@@ -285,7 +289,7 @@ app.get("/uploads/:projectId/:filename", (request, response, next) => {
 app.use("/uploads", express.static(UPLOAD_DIR, {
   fallthrough: false,
   setHeaders(response) {
-    response.setHeader("Cache-Control", "private, max-age=86400");
+    response.setHeader("Cache-Control", "no-store");
     response.setHeader("X-Content-Type-Options", "nosniff");
   },
 }));
@@ -298,36 +302,48 @@ app.get("/api/config", (_request, response) => {
   response.json({ videoProvider: BytePlus.enabled() ? "byteplus" : "gateway", videoModels: BytePlus.enabled() ? Object.keys(BytePlus.models) : null, cloudStorage: cloudStorage.enabled, directUpload: cloudMode, authEnabled });
 });
 
-app.get("/api/projects", (_request, response) => {
-  const projects = [...db.projects]
+app.get("/api/projects", (request, response) => {
+  const projects = db.projects.filter(project => projectAccess.readable(project, request.user))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map((project) => publicProject(project));
+    .map((project) => publicProject(project, false, request.user));
   response.json(projects);
 });
 
 app.post("/api/projects", (request, response) => {
+  const visibility = request.body?.visibility ?? "team";
+  if (!["personal", "team"].includes(visibility)) return response.status(400).json({ error: "请选择个人项目或团队项目" });
   const timestamp = now();
   const project = {
     id: id(),
     name: cleanName(request.body?.name),
+    visibility,
+    ownerId: request.user?.id || null,
     createdAt: timestamp,
     updatedAt: timestamp,
     viewport: { x: 0, y: 0, zoom: 1 },
   };
   db.projects.push(project);
   saveDatabase();
-  response.status(201).json(publicProject(project, true));
+  response.status(201).json(publicProject(project, true, request.user));
 });
 
 app.get("/api/projects/:projectId", (request, response) => {
   const project = projectById(request.params.projectId);
   if (!project) return response.status(404).json({ error: "项目不存在" });
-  response.json(publicProject(project, true));
+  response.json(publicProject(project, true, request.user));
 });
 
 app.patch("/api/projects/:projectId", (request, response) => {
   const project = projectById(request.params.projectId);
   if (!project) return response.status(404).json({ error: "项目不存在" });
+
+  if (Object.hasOwn(request.body || {}, "visibility")) {
+    if (!["personal", "team"].includes(request.body.visibility)) return response.status(400).json({ error: "项目分类无效" });
+    if (!projectAccess.manageable(project, request.user)) return response.status(403).json({ error: "只有项目创建者可以修改分类；旧项目由管理员管理" });
+    project.visibility = request.body.visibility;
+    if (!project.ownerId) project.ownerId = request.user?.id || null;
+    project.updatedAt = now();
+  }
 
   if (Object.prototype.hasOwnProperty.call(request.body || {}, "name")) {
     project.name = cleanName(request.body.name, project.name);
@@ -343,7 +359,7 @@ app.patch("/api/projects/:projectId", (request, response) => {
   }
 
   saveDatabase();
-  response.json(publicProject(project));
+  response.json(publicProject(project, false, request.user));
 });
 
 app.put("/api/projects/:projectId/state", (request, response) => {
@@ -353,6 +369,12 @@ app.put("/api/projects/:projectId/state", (request, response) => {
   const rawEdges = Array.isArray(request.body?.edges) ? request.body.edges.slice(0, 2000) : null;
   if (!rawNodes || !rawEdges) return response.status(400).json({ error: "画布状态格式不正确" });
 
+  // A snapshot must not reuse another project's node/job IDs or steal its results.
+  if (rawNodes.some(n => db.nodes.some(saved => saved.id === n?.id && saved.projectId !== project.id)
+    || db.jobs.some(job => job.nodeId === n?.id && job.projectId !== project.id))
+    || rawEdges.some(e => db.edges.some(saved => saved.id === e?.id && saved.projectId !== project.id))) {
+    return response.status(400).json({ error: "画布状态包含其他项目的节点或连线" });
+  }
   const nodes = rawNodes.map((node) => snapshotNode(node, project.id));
   if (nodes.some((node) => !node)) return response.status(400).json({ error: "画布中包含无效节点" });
   const nodeIds = new Set(nodes.map((node) => node.id));
@@ -394,7 +416,7 @@ app.put("/api/projects/:projectId/state", (request, response) => {
   if (cloudMode) for (const node of nodes) cloudJobs.restoreNode(node);
   touchProject(project.id);
   saveDatabase();
-  response.json(publicProject(project, true));
+  response.json(publicProject(project, true, request.user));
 });
 
 app.patch("/api/projects/:projectId/nodes", (request, response) => {
@@ -826,17 +848,19 @@ async function syncCloud() {
     }
   } finally { cloudSyncRunning = false; }
 }
-app.get("/api/storage", (_request, response) => {
+app.get("/api/storage", (request, response) => {
   const state = cloudStorage.summary();
   if (cloudMode) {
-    state.pending = db.jobs.filter(j => j.status === 'archiving').length;
-    const failures = db.jobs.filter(j => ['archive_failed','poll_failed'].includes(j.status));
+    const jobs = db.jobs.filter(j => projectAccess.readable(projectById(j.projectId), request.user));
+    state.ready = Object.entries(db.cloudRecords).filter(([url, record]) => record.status === 'ready' && projectAccess.readable(projectById(url.split('/')[2]), request.user)).length;
+    state.pending = jobs.filter(j => j.status === 'archiving').length;
+    const failures = jobs.filter(j => ['archive_failed','poll_failed'].includes(j.status));
     state.failed = failures.length; state.error = failures[0]?.error || null;
   }
   response.json({ ...state, syncing: cloudSyncRunning });
 });
-app.post("/api/storage/sync", async (_request, response) => {
-  if (cloudMode) { await cloudJobs.retryPaused(); return response.status(202).json({ ...cloudStorage.summary(), syncing: false }); }
+app.post("/api/storage/sync", async (request, response) => {
+  if (cloudMode) { await cloudJobs.retryPaused(job => projectAccess.readable(projectById(job.projectId), request.user)); return response.status(202).json({ enabled: cloudStorage.enabled, syncing: false }); }
   cloudStorage.retry();
   for (const node of db.nodes) for (const job of node.generation?.jobs || []) delete job.storageRetryAt;
   void syncCloud();

@@ -1,9 +1,31 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": { "server.js": { "maxDuration": 300, "excludeFiles": "{data/**,.run/**,test/**,scripts/**,docs/**,.edge-browser-smoke/**}" } },
-  "headers": [{ "source": "/(.*)", "headers": [
-    { "key": "X-Content-Type-Options", "value": "nosniff" },
-    { "key": "Referrer-Policy", "value": "same-origin" },
-    { "key": "X-Frame-Options", "value": "DENY" }
-  ] }]
+  "functions": {
+    "server.js": {
+      "maxDuration": 300,
+      "excludeFiles": "{data/**,.run/**,test/**,scripts/**,docs/**,.edge-browser-smoke/**}"
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        }
+      ]
+    }
+  ],
+  "regions": [
+    "hkg1"
+  ]
 }

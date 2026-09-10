@@ -23,6 +23,28 @@ async function main() {
     await client.evaluate("document.querySelector('[name=identity]').value='owner@example.com';document.querySelector('[name=password]').value='owner-test-password'");
     await press(client,'.login button');
     await waitFor(() => client.evaluate("!!document.querySelector('.workspace')"), 'Owner login failed');
+    await press(client,'[data-category="personal"]');
+    await waitFor(() => client.evaluate("document.querySelector('.workspace-heading h1')?.textContent === '个人项目'"), 'Personal tab failed');
+    await press(client,'[data-new-project]');
+    await waitFor(() => client.evaluate("typeof activeCanvas !== 'undefined' && !!activeCanvas"), 'Personal canvas did not open');
+    const personalId = await client.evaluate('activeCanvas.project.id');
+    assert.equal(await client.evaluate('activeCanvas.project.visibility'),'personal');
+    await client.send('Page.navigate',{url:f.base+'/?category=personal'});
+    await waitFor(() => client.evaluate("document.querySelectorAll('.project-card').length === 1"), 'Personal list did not persist');
+    await press(client,'[data-project-menu]');
+    await press(client,'[data-visibility]');
+    await press(client,'[data-cancel]');
+    assert.equal(await client.evaluate("document.querySelector('.workspace-heading h1').textContent"),'个人项目');
+    await press(client,'[data-project-menu]');
+    await press(client,'[data-visibility]');
+    await press(client,'[data-confirm]');
+    await waitFor(() => client.evaluate("document.querySelector('.workspace-heading h1')?.textContent === '团队项目' && document.querySelectorAll('.project-card').length === 1"),'Publish to team failed');
+    await press(client,'[data-project-menu]');
+    await press(client,'[data-visibility]');
+    await press(client,'[data-confirm]');
+    await waitFor(() => client.evaluate("document.querySelector('.workspace-heading h1')?.textContent === '个人项目'"),'Move to personal failed');
+    const personalShot = await client.send('Page.captureScreenshot',{format:'png'});
+    fs.writeFileSync(path.join(__dirname,'../.run/project-categories.png'),Buffer.from(personalShot.data,'base64'));
     await client.send('Page.navigate',{url:f.base+'/account.html'});
     await waitFor(() => client.evaluate("!!document.querySelector('#members form')"), 'Members page missing');
     await client.evaluate("document.querySelector('#members [name=email]').value='browser-friend@example.com'");
@@ -36,6 +58,9 @@ async function main() {
     await client.evaluate("document.querySelector('[name=identity]').value='浏览器朋友';document.querySelector('[name=password]').value='browser-friend-password'");
     await press(client,'.login button');
     await waitFor(() => client.evaluate("!!document.querySelector('.workspace')"), 'Invitation acceptance failed');
+    assert.equal(await client.evaluate("document.querySelectorAll('.project-card').length"),0,'Friend cannot see owner personal projects');
+    const privateResponse = await client.evaluate(`fetch('/api/projects/${personalId}').then(r=>r.status)`);
+    assert.equal(privateResponse,404);
     const project = await client.evaluate("api('/api/projects',{method:'POST',body:JSON.stringify({name:'云端浏览器验收'})})");
     await client.send('Page.navigate',{url:f.base+'/canvas/'+project.id});
     await waitFor(() => client.evaluate("typeof activeCanvas !== 'undefined' && !!activeCanvas"), 'Canvas did not load');
@@ -54,7 +79,7 @@ async function main() {
     await client.send('Page.reload');
     await waitFor(() => client.evaluate("document.querySelector('#usage')?.textContent.includes('已完成')"), 'Session persistence failed');
     await press(client,'#logout'); await waitFor(() => client.evaluate("!!document.querySelector('.login form')"),'Final logout failed');
-    console.log('Cloud browser smoke passed: private login, invitation, shared canvas, 9 MB multipart upload, per-member usage and session persistence.');
+    console.log('Cloud browser smoke passed: private/team categories, visibility moves, owner isolation, invitation, shared canvas, 9 MB multipart upload, per-member usage and session persistence.');
   } catch (e) {
     if (client) console.error(await client.evaluate("({url:location.href,body:document.body.innerText.slice(0,700)})").catch(()=>({})));
     throw e;

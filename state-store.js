@@ -6,7 +6,8 @@ function normalize(value = {}) {
   return { version: 5, projects: [], nodes: [], edges: [], users: [], sessions: [], invites: [], usage: [], jobs: [], bills: {}, cloudRecords: {}, uploadTickets: {}, loginAttempts: {}, ...value };
 }
 
-module.exports = function createStore({ file, databaseUrl, pool: suppliedPool }) {
+module.exports = function createStore({ file, databaseUrl, pool: suppliedPool, tos = false }) {
+  if (tos) return require('./tos-state-store')();
   const remote = Boolean(databaseUrl || suppliedPool);
   const pool = suppliedPool || (remote ? new (require('pg').Pool)({ connectionString: databaseUrl, max: 4, connectionTimeoutMillis: 15000, idleTimeoutMillis: 10000, allowExitOnIdle: true }) : null);
   const context = new AsyncLocalStorage();
