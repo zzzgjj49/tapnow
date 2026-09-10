@@ -16,6 +16,11 @@ test('cloud workspace persists shared projects, enforces invitations, uploads di
     assert.equal(joined.status, 201); const friend = joined.cookie;
     assert.equal((await f.api('/api/auth/accept', { token, name:'再次', password:'friend-test-password' })).status, 400);
     assert.equal((await f.api('/api/members', null, friend)).status, 403);
+    const initialUsage = (await f.api('/api/usage', null, owner)).data;
+    assert.equal(initialUsage.members.length, 2);
+    assert.equal(initialUsage.members.find(m => m.userId === joined.data.id).tasks, 0);
+    assert.equal(initialUsage.members.find(m => m.userId === joined.data.id).tokens, 0);
+    assert.equal((await f.api('/api/usage?month=2026-99', null, owner)).status, 400);
     const projects = await Promise.all(Array.from({ length: 6 }, (_, i) => f.api('/api/projects', { name:'项目' + i }, i % 2 ? friend : owner)));
     projects.forEach(p => assert.equal(p.status, 201));
     assert.equal((await f.api('/api/projects', null, friend)).data.length, 6);
@@ -51,10 +56,16 @@ test('cloud workspace persists shared projects, enforces invitations, uploads di
     const report = await f.api('/api/usage', null, friend);
     assert.equal(report.data.records.length, 2); assert.equal(report.data.records[0].userId, joined.data.id);
     assert.equal(report.data.records[0].usage.total_tokens, 123);
-    assert.equal((await f.api('/api/usage', null, owner)).data.records.length, 2);
+    const adminUsage = (await f.api('/api/usage', null, owner)).data;
+    assert.equal(adminUsage.records.length, 2);
+    assert.equal(adminUsage.members.find(m => m.userId === joined.data.id).tokens, 246);
+    assert.equal(adminUsage.members.find(m => m.userId === joined.data.id).completed, 2);
+    assert.equal(adminUsage.members.find(m => m.userId === logged.data.id).tasks, 0);
+    assert.equal(report.data.members.length, 1);
+    assert.equal(report.data.members[0].userId, joined.data.id);
+    assert.ok(!('bill' in adminUsage) && !('shares' in adminUsage));
     const month = report.data.month;
-    assert.equal((await f.api('/api/usage/bill', { month, amount:10.01, userIds:[logged.data.id,joined.data.id] }, owner,'PUT')).status, 200);
-    assert.equal((await f.api('/api/usage', null, friend)).data.shares.reduce((n,s) => n+s.cents,0), 1001);
+    assert.equal((await f.api('/api/usage/bill', { month, amount:10.01, userIds:[logged.data.id,joined.data.id] }, owner,'PUT')).status, 410);
     await f.api(`/api/nodes/${node.id}`, null, friend, 'DELETE');
     assert.equal((await f.api('/api/usage', null, friend)).data.records.length, 2, 'deleting nodes preserves billing history');
     // A failed queue does not submit a paid request or leave an unrecoverable busy node.

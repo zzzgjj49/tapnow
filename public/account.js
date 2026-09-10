@@ -14,32 +14,63 @@ function login(token) {
     location.replace('/');
   });
 }
+let selectedMember = null, usageVersion = 0;
+function settings() {
+  document.querySelector('#logout').hidden = false;
+  content.innerHTML = '<h1>账号设置</h1><p>' + esc(me.name) + ' · ' + esc(me.email) + '</p><section><h2>修改我的密码</h2><form id="password"><label>原密码<input type="password" name="old" required autocomplete="current-password"></label><label>新密码（至少 12 位）<input type="password" name="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><button>保存密码</button></form></section><a href="/account.html">返回用量与成员</a>';
+  handle(document.querySelector('#password'), async data => {
+    await api('/api/auth/password', { currentPassword:data.get('old'), password:data.get('password') });
+    notice.textContent = '你的密码已更新，其他设备已退出登录';
+    document.querySelector('#password').reset();
+  });
+}
 async function dashboard() {
   document.querySelector('#logout').hidden = false;
-  content.innerHTML = `<h1>${esc(me.name)}，欢迎回来</h1><p>这是受邀朋友共用的工作空间。用量按发起生成的账号记录，月份按 UTC 统计。</p><section><h2>生成用量</h2><div class="toolbar"><label>月份<input id="month" type="month" value="${new Date().toISOString().slice(0,7)}"></label><button id="refresh">刷新</button><button id="export">导出我的${me.role === 'admin' ? '团队' : ''}明细 CSV</button></div><div id="usage"></div></section>${me.role === 'admin' ? '<section id="billing"></section><section id="members"></section>' : ''}<section><h2>修改密码</h2><form id="password"><label>原密码<input type="password" name="old" required autocomplete="current-password"></label><label>新密码（至少 12 位）<input type="password" name="password" required minlength="12" maxlength="128" autocomplete="new-password"></label><button>保存密码</button></form></section>`;
-  handle(document.querySelector('#password'), async data => { await api('/api/auth/password', { currentPassword: data.get('old'), password: data.get('password') }); notice.textContent = '密码已更新，其他设备已退出登录'; document.querySelector('#password').reset(); });
+  content.innerHTML = '<h1>' + (me.role === 'admin' ? '管理员后台' : '我的生成用量') + '</h1><p>' + (me.role === 'admin' ? '成员加入后自动显示在用量列表，每 30 秒更新一次。' : '查看自己发起的生成任务。') + '</p><section><h2>生成用量</h2><div class="toolbar"><label>月份<input id="month" type="month" value="' + new Date().toISOString().slice(0,7) + '"></label><button id="refresh">刷新</button><button id="export">导出任务明细 CSV</button></div><div id="usage"></div></section>' + (me.role === 'admin' ? '<section id="members"></section>' : '');
   document.querySelector('#refresh').onclick = () => loadUsage().catch(e => notice.textContent = e.message);
   document.querySelector('#month').onchange = document.querySelector('#refresh').onclick;
   document.querySelector('#export').onclick = exportCsv;
   await loadUsage(); if (me.role === 'admin') await loadMembers();
 }
-const tokens = r => Number(r.usage?.total_tokens ?? r.usage?.completion_tokens ?? 0);
+const tokens = r => r.tokens ?? 0;
 const stateNames = { queued:'待提交', submitting:'提交中', generating:'生成中', archiving:'云端归档中', complete:'已完成', failed:'失败', unknown:'提交结果待核对', archive_failed:'归档暂停', poll_failed:'查询暂停' };
 async function loadUsage() {
-  report = await api('/api/usage?month=' + document.querySelector('#month').value);
-  const records = report.records;
-  document.querySelector('#usage').innerHTML = `<div class="stats"><div><strong>${records.length}</strong>生成任务</div><div><strong>${records.reduce((n,r) => n + tokens(r),0).toLocaleString()}</strong>已返回 Token</div></div><p>Token 是用量，不是金额。不同模型计费不同；未返回用量的任务仍可能产生费用，请以字节账单为准。</p><div class="scroll"><table><thead><tr><th>成员</th><th>时间 UTC</th><th>模型</th><th>状态</th><th>Token</th></tr></thead><tbody>${records.map(r => `<tr><td>${esc(r.userName)}</td><td>${esc(r.createdAt.slice(0,19).replace('T',' '))}</td><td>${esc(r.model)}</td><td>${esc(stateNames[r.status] || r.status)}</td><td>${r.usage ? tokens(r).toLocaleString() : '待核对'}</td></tr>`).join('') || '<tr><td colspan="5">本月还没有生成任务</td></tr>'}</tbody></table></div><h3>本月账单分摊</h3>${report.bill ? `<p>实际账单：$${(report.bill.cents / 100).toFixed(2)} USD · 按所选成员平分</p>${report.shares.map(s => `<p>${esc(s.name)}：$${(s.cents/100).toFixed(2)}</p>`).join('')}` : '<p>管理员尚未填写本月实际账单。</p>'}`;
-  if (me.role === 'admin') {
-    document.querySelector('#billing').innerHTML = `<h2>填写 ${esc(report.month)} 实际账单</h2><p>从字节控制台核对金额后填写，并选择本月分摊的人。这里仅记录账单，不自动扣款。</p><form><label>合计（USD）<input name="amount" type="number" min="0" max="1000000" step="0.01" required value="${report.bill ? report.bill.cents / 100 : ''}"></label><div class="bill-users">${report.users.map(u => `<label class="check"><input name="userId" type="checkbox" value="${esc(u.id)}" ${(report.bill?.userIds || records.map(r => r.userId)).includes(u.id) ? 'checked' : ''}>${esc(u.name)}</label>`).join('')}</div><button>保存并平分账单</button></form>`;
-    handle(document.querySelector('#billing form'), async data => { await api('/api/usage/bill', { month: report.month, amount: data.get('amount'), userIds: data.getAll('userId') }, 'PUT'); await loadUsage(); notice.textContent = '账单已保存'; });
-  }
+  const month = document.querySelector('#month')?.value;
+  if (!month) return;
+  const version = ++usageVersion;
+  const result = await api('/api/usage?month=' + encodeURIComponent(month));
+  if (version !== usageVersion || !document.querySelector('#usage')) return;
+  report = result;
+  renderUsage();
+}
+function filteredRecords() {
+  return selectedMember === null ? report.records : report.records.filter(r => String(r.userId ?? '') === selectedMember);
+}
+function renderUsage() {
+  const previousOpen = document.querySelector('#task-details')?.open;
+  const total = report.totals;
+  const rows = report.members;
+  const selected = rows.find(u => String(u.userId ?? '') === selectedMember);
+  if (selectedMember !== null && !selected) selectedMember = null;
+  const records = filteredRecords();
+  const memberTable = me.role === 'admin' ? '<h3>每位成员的用量</h3><div class="scroll"><table id="member-usage"><thead><tr><th>成员</th><th>生成任务</th><th>已完成</th><th>进行中</th><th>失败 / 待处理</th><th>已返回 Token</th><th>用量待返回</th><th></th></tr></thead><tbody>' + rows.map(u => '<tr data-member-row="' + esc(u.userId ?? '') + '"><td><strong>' + esc(u.name) + '</strong><small>' + esc(u.email) + (u.disabled ? ' · 已停用' : '') + '</small></td><td>' + u.tasks + '</td><td>' + u.completed + '</td><td>' + u.active + '</td><td>' + (u.failed + u.unresolved) + '</td><td>' + u.tokens.toLocaleString() + '</td><td>' + u.unreported + '</td><td><button data-usage-member="' + esc(u.userId ?? '') + '">查看明细</button></td></tr>').join('') + '</tbody></table></div>' : '';
+  document.querySelector('#usage').innerHTML = '<div class="stats"><div><strong>' + total.tasks + '</strong>生成任务</div><div><strong>' + total.completed + '</strong>已完成</div><div><strong>' + total.tokens.toLocaleString() + '</strong>已返回 Token</div><div><strong>' + total.unreported + '</strong>用量待返回</div></div><p>按发起账号统计，月份按 UTC 划分。Token 为服务商返回的用量，费用在字节后台查看。</p>' + memberTable + '<details id="task-details"' + (previousOpen || selectedMember !== null || me.role !== 'admin' ? ' open' : '') + '><summary>' + (selected ? esc(selected.name) + '的任务明细' : '全部任务明细') + '（' + records.length + '）</summary>' + (selectedMember !== null ? '<button id="clear-member">查看全部成员</button>' : '') + '<div class="scroll"><table><thead><tr><th>成员</th><th>时间 UTC</th><th>模型</th><th>状态</th><th>Token</th></tr></thead><tbody>' + records.map(r => '<tr><td>' + esc(r.userName) + '</td><td>' + esc(r.createdAt.slice(0,19).replace('T',' ')) + '</td><td>' + esc(r.model) + '</td><td>' + esc(stateNames[r.status] || r.status) + '</td><td>' + (r.tokens === null ? '待返回' : tokens(r).toLocaleString()) + '</td></tr>').join('') + (records.length ? '' : '<tr><td colspan="5">本月还没有生成任务</td></tr>') + '</tbody></table></div></details>';
+  document.querySelectorAll('[data-usage-member]').forEach(button => button.onclick = () => {
+    selectedMember = button.dataset.usageMember; renderUsage();
+    document.querySelector('#task-details').scrollIntoView({block:'nearest',behavior:'smooth'});
+  });
+  const clear = document.querySelector('#clear-member');
+  if (clear) clear.onclick = () => { selectedMember = null; renderUsage(); };
 }
 function exportCsv() {
-  const rows = [['任务编号','成员','时间UTC','模型','状态','请求时长秒','清晰度','视频参考','Token','服务商任务编号'], ...report.records.map(r => [r.id,r.userName,r.createdAt,r.model,r.status,r.requestedSeconds,r.resolution,r.hasVideoInput ? '是':'否',r.usage ? tokens(r) : '',r.jobId || ''])];
+  if (!report) return;
+  const rows = [['任务编号','成员','时间UTC','模型','状态','请求时长秒','清晰度','视频参考','Token','服务商任务编号'], ...filteredRecords().map(r => [r.id,r.userName,r.createdAt,r.model,r.status,r.requestedSeconds,r.resolution,r.hasVideoInput ? '是':'否',r.tokens === null ? '' : tokens(r),r.jobId || ''])];
   const cell = value => { let s = String(value ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replaceAll('"','""') + '"'; };
   const url = URL.createObjectURL(new Blob(['\ufeff' + rows.map(row => row.map(cell).join(',')).join('\r\n')], { type:'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = url; a.download = 'canvas-usage-' + report.month + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+setInterval(() => { if (!document.hidden && document.querySelector('#usage')) loadUsage().catch(e => notice.textContent = e.message); }, 30000);
+window.addEventListener('focus', () => { if (document.querySelector('#usage')) loadUsage().catch(e => notice.textContent = e.message); });
 async function loadMembers() {
   const data = await api('/api/members');
   document.querySelector('#members').innerHTML = `<h2>邀请与成员</h2><p>邀请链接只显示一次，7 天内有效且只能使用一次。复制后由你发给朋友。</p><form><label>朋友的邮箱<input name="email" type="email" required></label><button>创建邀请链接</button></form><div id="invite-result"></div>${data.users.map(u => `<div class="member"><span>${esc(u.name)} · ${esc(u.email)} ${u.role === 'admin' ? '（管理员）' : u.disabled ? '（已停用）' : ''}</span>${u.role !== 'admin' ? `<button data-user="${esc(u.id)}" data-disabled="${u.disabled}">${u.disabled ? '恢复使用' : '停用账号'}</button>` : ''}</div>`).join('')}${data.invites.map(i => `<div class="member"><span>${esc(i.email)} · 待接受邀请</span><button data-invite="${esc(i.id)}">撤销邀请</button></div>`).join('')}`;
@@ -61,6 +92,6 @@ function showInvitation() {
 window.addEventListener('hashchange', showInvitation);
 (async () => {
   if (showInvitation()) return;
-  try { const result = await api('/api/auth/me'); if (!result.enabled) { content.innerHTML = '<section><h1>成员与邀请</h1><p>当前尚未启用账号登录，暂时无法创建邀请。</p><p>配置管理员账号并启用登录后，管理员可以在这里填写朋友的邮箱、创建邀请链接，再复制发给朋友。</p><p>朋友从其他电脑使用，还需要一个他们能访问的网站地址；localhost 只能在当前电脑打开。</p><a href="/">返回画板</a></section>'; return; } me = result.user; await dashboard(); }
+  try { const result = await api('/api/auth/me'); if (!result.enabled) { content.innerHTML = '<section><h1>成员与邀请</h1><p>当前尚未启用账号登录，暂时无法创建邀请。</p><p>配置管理员账号并启用登录后，管理员可以在这里填写朋友的邮箱、创建邀请链接，再复制发给朋友。</p><p>朋友从其他电脑使用，还需要一个他们能访问的网站地址；localhost 只能在当前电脑打开。</p><a href="/">返回画板</a></section>'; return; } me = result.user; document.querySelector("#settings-link").hidden = false; if (new URLSearchParams(location.search).get("view") === "settings") settings(); else await dashboard(); }
   catch(e) { login(); if (e.message !== '请先登录') notice.textContent = e.message; }
 })();

@@ -104,23 +104,12 @@ module.exports = function members({ app, db, save, enabled }) {
     const user = { id: crypto.randomUUID(), email: invite.email, name: String(req.body.name || invite.email.split('@')[0]).trim().slice(0, 50), role: 'member', passwordHash: await passwordHash(req.body.password), createdAt: new Date().toISOString() };
     db.users.push(user); invite.used = true; startSession(user, res); res.status(201).json(publicUser(user));
   });
-  const monthOf = iso => new Date(iso).toISOString().slice(0, 7);
   app.get('/api/usage', (req, res) => {
     if (!req.user) return res.status(401).json({ error: '请先登录' });
-    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : monthOf(Date.now());
-    const all = db.usage.filter(j => monthOf(j.createdAt) === month);
-    const records = (req.user.role === 'admin' ? all : all.filter(j => j.userId === req.user.id)).map(({ payload, error, ...j }) => ({ ...j, userName: db.users.find(u => u.id === j.userId)?.name || '历史任务' }));
-    const bill = db.bills[month] || null;
-    const participants = bill?.userIds || [];
-    const cents = bill?.cents || 0;
-    const shares = participants.map((userId, index) => ({ userId, name: db.users.find(u => u.id === userId)?.name || '已停用成员', cents: Math.floor(cents / participants.length) + (index < cents % participants.length ? 1 : 0) }));
-    res.json({ month, records, bill, shares, users: req.user.role === 'admin' ? db.users.map(publicUser) : [], timezone: 'UTC' });
+    const month = req.query.month || new Date().toISOString().slice(0,7);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return res.status(400).json({ error: '请选择有效月份' });
+    res.json(require('./usage-report').usageReport({ users: db.users, usage: db.usage, viewer: req.user, month }));
   });
-  app.put('/api/usage/bill', admin, (req, res) => {
-    const { month, amount, userIds } = req.body;
-    const cents = Math.round(Number(amount) * 100);
-    const ids = [...new Set(Array.isArray(userIds) ? userIds : [])];
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month || '') || !Number.isSafeInteger(cents) || cents < 0 || cents > 100000000 || !ids.length || ids.some(id => !db.users.some(u => u.id === id))) return res.status(400).json({ error: '请填写有效月份、美元金额，并选择分摊成员' });
-    db.bills[month] = { cents, currency: 'USD', userIds: ids, updatedAt: new Date().toISOString(), updatedBy: req.user.id }; save(); res.json({ ok: true });
-  });
+  // Retain historical stored bills, but no longer accept or expose bill splitting.
+  app.put('/api/usage/bill', admin, (_req, res) => res.status(410).json({ error: '账单功能已移除，请在字节后台查看' }));
 };

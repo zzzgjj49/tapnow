@@ -47,6 +47,9 @@ async function main() {
     fs.writeFileSync(path.join(__dirname,'../.run/project-categories.png'),Buffer.from(personalShot.data,'base64'));
     await client.send('Page.navigate',{url:f.base+'/account.html'});
     await waitFor(() => client.evaluate("!!document.querySelector('#members form')"), 'Members page missing');
+    assert.equal(await client.evaluate("!!document.querySelector('#billing') || !!document.querySelector('#password')"),false);
+    assert.equal(await client.evaluate("document.querySelectorAll('#member-usage tbody tr').length"),1);
+    assert.ok(await client.evaluate("document.querySelector('#member-usage').textContent.includes('0')"));
     await client.evaluate("document.querySelector('#members [name=email]').value='browser-friend@example.com'");
     await press(client,'#members form button');
     await waitFor(() => client.evaluate("!!document.querySelector('#invite-result input')"), 'Invite not created');
@@ -78,7 +81,24 @@ async function main() {
     fs.mkdirSync(path.join(__dirname,'../.run'),{recursive:true}); fs.writeFileSync(path.join(__dirname,'../.run/cloud-members.png'),Buffer.from(shot.data,'base64'));
     await client.send('Page.reload');
     await waitFor(() => client.evaluate("document.querySelector('#usage')?.textContent.includes('已完成')"), 'Session persistence failed');
+    await press(client,'#settings-link');
+    await waitFor(() => client.evaluate("!!document.querySelector('#password')"),'Self-service password form missing');
+    await client.evaluate("document.querySelector('[name=old]').value='browser-friend-password';document.querySelector('#password [name=password]').value='browser-friend-changed-password'");
+    await press(client,'#password button');
+    await waitFor(() => client.evaluate("document.querySelector('#notice').textContent.includes('你的密码已更新')"),'Self-service password change failed');
     await press(client,'#logout'); await waitFor(() => client.evaluate("!!document.querySelector('.login form')"),'Final logout failed');
+    await client.evaluate("document.querySelector('[name=identity]').value='owner@example.com';document.querySelector('[name=password]').value='owner-test-password'");
+    await press(client,'.login button');
+    await waitFor(() => client.evaluate("!!document.querySelector('.workspace')"),'Owner login failed after member password change');
+    await client.send('Page.navigate',{url:f.base+'/account.html'});
+    await waitFor(() => client.evaluate("document.querySelectorAll('#member-usage tbody tr').length === 2"),'New member missing from admin usage');
+    assert.ok(await client.evaluate("document.querySelector('#member-usage').textContent.includes('123')"));
+    await press(client,'#member-usage tbody tr:nth-child(2) button');
+    assert.ok(await client.evaluate("document.querySelector('#task-details').open && document.querySelector('#task-details').textContent.includes('123')"));
+    assert.equal(await client.evaluate("!!document.querySelector('#password') || !!document.querySelector('#billing')"),false);
+    const usageShot=await client.send('Page.captureScreenshot',{format:'png'});
+    fs.writeFileSync(path.join(__dirname,'../.run/admin-member-usage.png'),Buffer.from(usageShot.data,'base64'));
+    await press(client,'#logout');
     console.log('Cloud browser smoke passed: private/team categories, visibility moves, owner isolation, invitation, shared canvas, 9 MB multipart upload, per-member usage and session persistence.');
   } catch (e) {
     if (client) console.error(await client.evaluate("({url:location.href,body:document.body.innerText.slice(0,700)})").catch(()=>({})));
