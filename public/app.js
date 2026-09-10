@@ -398,7 +398,6 @@ class MaterialCanvas {
           <span class="topbar-divider"></span>
           <div class="save-state saved" data-save-state>已保存</div>
           <button type="button" class="cloud-storage-state" data-cloud-storage hidden></button>
-          <a class="topbar-button" href="/account.html">管理中心</a>
         </div>
         <div class="canvas-surface" data-canvas>
           <div class="canvas-world" data-world>
