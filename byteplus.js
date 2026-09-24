@@ -6,6 +6,18 @@ const models = {
   "Seedance 2.0 Fast": "dreamina-seedance-2-0-fast-260128",
   "Seedance 2.0 Mini": "dreamina-seedance-2-0-mini-260615",
 };
+const endpointEnvironment = {
+  "Seedance 2.0 Fast": "ARK_SEEDANCE_20_FAST_ENDPOINT_ID",
+};
+function modelFor(name) {
+  const model = models[name];
+  if (!model) throw new Error("当前 BytePlus 服务未接入此模型，请选择 Seedance 2.0、Fast 或 Mini");
+  const variable = endpointEnvironment[name];
+  const endpoint = variable ? process.env[variable]?.trim() : "";
+  if (!endpoint) return model;
+  if (!/^ep-[A-Za-z0-9-]+$/.test(endpoint)) throw new Error(`服务端 ${variable} 不是有效的 BytePlus 接入点 ID`);
+  return endpoint;
+}
 function enabled() { return process.env.VIDEO_GENERATION_PROVIDER === "byteplus"; }
 function config() {
   return { provider: "byteplus", prefix: "ARK", key: process.env.ARK_API_KEY,
@@ -13,8 +25,7 @@ function config() {
 }
 const mimeTypes = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".mp4": "video/mp4", ".mov": "video/quicktime" };
 async function payload(input, uploadDir) {
-  const model = models[input.model];
-  if (!model) throw new Error("当前 BytePlus 服务未接入此模型，请选择 Seedance 2.0、Fast 或 Mini");
+  const model = modelFor(input.model);
   const s = input.settings;
   if (!["text", "first-frame", "first-last", "omni"].includes(s.method)) throw new Error("此模型暂不支持该生成方式");
   const resolutions = input.model === "Seedance 2.0" ? ["480p", "720p", "1080p", "4k"] : ["480p", "720p"];
