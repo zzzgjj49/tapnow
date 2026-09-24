@@ -13,7 +13,7 @@
 
 1. 将不含密钥和本地数据的代码上传到 Git 仓库，在 Vercel 导入为 Express 项目，或使用 Vercel CLI 创建项目。不要上传 `.env`、`data/`、`.run/`。仓库中的 `.gitignore` 和 `.vercelignore` 已排除这些目录。
 2. 在 Vercel 配置 STATE_STORAGE=tos 及现有 TOS 参数，不需要 DATABASE_URL。先运行 node scripts/verify-tos-state.js 验证目标桶条件写入能力。函数部署在香港 hkg1，访问 TOS 使用外网域名。
-3. 在 Vercel Settings → Environment Variables 填入 `.env.example` 所列云端配置。APP_URL 是固定的正式访问域名，例如 `https://your-canvas.vercel.app`，不要填写临时预览地址，末尾不带 `/`。
+3. 在 Vercel Settings → Environment Variables 填入 `.env.example` 所列云端配置。使用 Seedance 2.0 Fast 自定义推理接入点时，同时填写 `ARK_SEEDANCE_20_FAST_ENDPOINT_ID=ep-...` 并重新部署；未填写会继续使用官方模型 ID。APP_URL 是固定的正式访问域名，例如 `https://your-canvas.vercel.app`，不要填写临时预览地址，末尾不带 `/`。
 4. 设置 ADMIN_EMAIL 和至少 12 位的 ADMIN_PASSWORD。首次启动创建管理员；已有管理员的密码不会因重新部署而重置。后续在账号页修改密码。
 5. 配置 QStash 三个变量。QStash 要访问 `/api/internal/jobs`；如果 Vercel 启用了部署保护，必须允许已验证的队列请求到达应用。应用会校验 QStash 签名，不接受普通用户调用此接口。生成请求通常在一分钟内开始处理，后台每次最多处理 4 个阶段；页面轮询只读取进度。
 6. 在 TOS 桶的“跨域访问”添加规则：允许来源为准确的 APP_URL；允许方法 PUT、GET、HEAD；允许请求头 `*`；可暴露响应头 ETag、Content-Length、Content-Type；缓存时间 3600。生产站点与本地测试站点需分别加入准确来源，保持桶私有。服务器 AK/SK 不会交给浏览器，浏览器只获得指定文件、指定分片的临时签名链接。
