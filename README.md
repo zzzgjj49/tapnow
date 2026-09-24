@@ -75,7 +75,7 @@ MOV、M4A 等文件会保留原格式；能否在页面内直接播放取决于�
 
 在项目根目录创建 `.env`（参考 `.env.example`），填写 `VIDEO_GENERATION_PROVIDER=byteplus`、`ARK_API_KEY` 后运行 `npm start`。服务启动时自动读取此文件；环境变量优先，Key 只在服务端使用。
 
-适配器 `byteplus.js` 对接新加坡区域 `/api/v3/contents/generations/tasks`，支持截图提供的 Seedance 2.0、Fast、Mini 三个模型 ID。启用后模型菜单仅显示这三个模型，默认使用 Fast。没有填充其他模型的替代映射。
+适配器 `byteplus.js` 对接新加坡区域 `/api/v3/contents/generations/tasks`，支持截图提供的 Seedance 2.0、Fast、Mini 三个模型 ID。启用后模型菜单仅显示这三个模型，默认使用 Fast。若配置 `ARK_SEEDANCE_20_FAST_ENDPOINT_ID=ep-...`，Fast 请求会优先使用该自定义推理接入点；未配置时回退官方模型 ID。没有填充其他模型的替代映射。
 
 支持提示词、首尾帧、全能参考、比例、清晰度、4–15 秒时长、音频开关和 1/2/4 个独立任务；处理原生任务编号、排队/运行/成功/失败/过期状态及结果 URL，保存服务商返回的 usage。真实费用由 BytePlus 结算，接入后不显示截图积分估算。
 
