@@ -11,7 +11,9 @@ const BytePlus = require("../byteplus");
 test("BytePlus converts local references and rejects unsupported requests before submission", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ark-media-"));
   const input = { model: "Seedance 2.0 Fast", prompt: "Landscape", settings: { method: "first-last", resolution: "480p", duration: 4, ratio: "16:9", audio: false }, references: [] };
+  const previousEndpoint = process.env.ARK_SEEDANCE_20_FAST_ENDPOINT_ID;
   try {
+    delete process.env.ARK_SEEDANCE_20_FAST_ENDPOINT_ID;
     fs.writeFileSync(path.join(dir, "first.png"), "fixture");
     input.references = [{ type: "image", path: path.join(dir, "first.png"), role: "first-frame" }, { type: "image", url: "https://example.com/last.png", role: "last-frame" }];
     const body = await BytePlus.payload(input, dir);
@@ -22,6 +24,11 @@ test("BytePlus converts local references and rejects unsupported requests before
     assert.equal(body.generate_audio, false);
     assert.equal(body.duration, 4);
     assert.ok(!JSON.stringify(body).includes(dir));
+    process.env.ARK_SEEDANCE_20_FAST_ENDPOINT_ID = " ep-20260924191533-556d4 ";
+    assert.equal((await BytePlus.payload(input, dir)).model, "ep-20260924191533-556d4");
+    process.env.ARK_SEEDANCE_20_FAST_ENDPOINT_ID = "invalid-endpoint";
+    await assert.rejects(BytePlus.payload(input, dir), /ARK_SEEDANCE_20_FAST_ENDPOINT_ID/);
+    delete process.env.ARK_SEEDANCE_20_FAST_ENDPOINT_ID;
     await assert.rejects(BytePlus.payload({ ...input, model: "Kling 3.0" }, dir), /未接入/);
     await assert.rejects(BytePlus.payload({ ...input, settings: { ...input.settings, resolution: "1080p" } }, dir), /清晰度/);
     await assert.rejects(BytePlus.payload({ ...input, references: [{ type: "audio", url: "https://example.com/ref.mp3" }] }, dir), /同时提供/);
@@ -29,7 +36,11 @@ test("BytePlus converts local references and rejects unsupported requests before
     assert.equal(omni.content[1].role, "reference_video");
     assert.equal(omni.content[2].role, "reference_audio");
     assert.equal(BytePlus.result({ status: "expired" }).status, "failed");
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    if (previousEndpoint === undefined) delete process.env.ARK_SEEDANCE_20_FAST_ENDPOINT_ID;
+    else process.env.ARK_SEEDANCE_20_FAST_ENDPOINT_ID = previousEndpoint;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("BytePlus native HTTP contract authenticates, polls, persists usage, downloads and reports provider errors", async () => {
@@ -53,7 +64,7 @@ test("BytePlus native HTTP contract authenticates, polls, persists usage, downlo
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ark-http-"));
   const port = 39000 + Math.floor(Math.random() * 1000);
   const base = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, ["server.js"], { stdio: "ignore", cwd: path.resolve(__dirname, ".."), env: { ...process.env, CANVAS_LOAD_ENV: "0", TOS_STORAGE_ENABLED: "0", VIDEO_GENERATION_PROVIDER: "byteplus", ARK_API_KEY: "test-only-key", ARK_BASE_URL: providerUrl, PORT: String(port), HOST: "127.0.0.1", DATA_DIR: dir } });
+  const child = spawn(process.execPath, ["server.js"], { stdio: "ignore", cwd: path.resolve(__dirname, ".."), env: { ...process.env, CANVAS_LOAD_ENV: "0", TOS_STORAGE_ENABLED: "0", VIDEO_GENERATION_PROVIDER: "byteplus", ARK_API_KEY: "test-only-key", ARK_BASE_URL: providerUrl, ARK_SEEDANCE_20_FAST_ENDPOINT_ID: "ep-20260924191533-556d4", PORT: String(port), HOST: "127.0.0.1", DATA_DIR: dir } });
   const api = async (url, method = "GET", body) => {
     const res = await fetch(base + url, { method, headers: { "Content-Type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
     assert.ok(res.ok); return res.json();
@@ -70,6 +81,7 @@ test("BytePlus native HTTP contract authenticates, polls, persists usage, downlo
     const submitted = await api(endpoint + "/generate", "POST");
     assert.equal(submitted.generation.status, "generating");
     assert.equal(submissions.length, 2);
+    assert.equal(submissions[0].model, "ep-20260924191533-556d4");
     assert.deepEqual(Object.keys(submissions[0]).sort(), ["model", "content", "ratio", "resolution", "duration", "generate_audio", "watermark"].sort());
     const done = await api(endpoint + "/generation");
     assert.equal(done.generation.status, "complete");
